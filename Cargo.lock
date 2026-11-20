@@ -36,7 +36,14 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 name = "phylo-fasttree-wasm"
 version = "0.1.0"
 dependencies = [
+ "bumpalo",
  "libm",
+ "log",
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "unicode-ident",
  "wasm-bindgen",
 ]
 
