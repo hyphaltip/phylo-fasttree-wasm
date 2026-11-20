@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>pending</title></head>
+<body><pre id="out">pending</pre>
+<script type="module">
+import init, { buildTreeNT, buildTreeProtein, fastTreeVersion } from './pkg_web/phylo_fasttree_wasm.js';
+const nt = `>a
+ACGTACGTACGTACGT
+>b
+ACGTACGTACGTACGA
+>c
+ACGTACGTACGAACGA
+>d
+ACGAACGTACGAACGA
+`;
+const aa = `>p0
+MKWVTELLSKLKQLK
+>p1
+MKWVTELLSKLKQLR
+>p2
+MKWVTELLSKLKRLK
+>p3
+MKWVTELLSRLKQLK
+`;
+try {
+  await init();
+  const t1 = buildTreeNT(nt);
+  const t2 = buildTreeProtein(aa);
+  const t3 = buildTreeNT(nt);
+  document.getElementById('out').textContent =
+    `${fastTreeVersion()}\n${t1}\n${t2}\n${t3}`;
+} catch (e) {
+  document.getElementById('out').textContent = `ERROR: ${e}`;
+}
+</script>
+</body></html>

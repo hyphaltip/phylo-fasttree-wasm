@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FastTree WASM demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; }
+    textarea { width: 100%; height: 16rem; font-family: monospace; }
+    pre { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; }
+    button { padding: 0.5rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>FastTree in WebAssembly</h1>
+  <p>Paste a nucleotide FASTA alignment and click "Build tree".</p>
+  <textarea id="fasta" spellcheck="false">&gt;a
+ACGTACGTACGTACGT
+&gt;b
+ACGTACGTACGTACGA
+&gt;c
+ACGTACGTACGAACGA
+&gt;d
+ACGAACGTACGAACGA
+</textarea>
+  <p><button id="go">Build tree</button></p>
+  <pre id="out"></pre>
+
+  <script type="module">
+    import init, { buildTreeNT, fastTreeVersion } from './pkg_web/phylo_fasttree_wasm.js';
+
+    await init();
+    document.title = `FastTree WASM ${fastTreeVersion()}`;
+    document.getElementById('go').addEventListener('click', () => {
+      const fasta = document.getElementById('fasta').value;
+      const out = document.getElementById('out');
+      try {
+        out.textContent = buildTreeNT(fasta);
+      } catch (e) {
+        out.textContent = `Error: ${e}`;
+      }
+    });
+  </script>
+</body>
+</html>

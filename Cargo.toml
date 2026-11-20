@@ -1,0 +1,26 @@
+[package]
+name = "phylo-fasttree-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Upstream FastTree 2.1.11 phylogenetic inference compiled to wasm32 with a wasm-bindgen API"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/hyphaltip/phylo-fasttree-wasm"
+documentation = "https://docs.rs/phylo-fasttree-wasm"
+readme = "README.md"
+keywords = ["phylogenetics", "bioinformatics", "fasttree", "wasm", "tree"]
+categories = ["science", "web-programming"]
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.83"
+libm = "=0.2.7"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
