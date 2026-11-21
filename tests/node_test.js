@@ -122,6 +122,23 @@ try {
   passed++;
 }
 
+// FastTree's own exit(1) path must produce a catchable error, not an
+// `unreachable` trap. `-close` without `-top` is rejected by the C code after
+// the Rust pre-flight has accepted the arguments.
+try {
+  buildTree('>a\nACGTACGT\n>b\nACGTACGA\n', ['-nt', '-notop', '-close', '0.5']);
+  failures++;
+  console.error('FAIL FastTree exit should throw a catchable error');
+} catch (e) {
+  const message = String(e && (e.message || e));
+  if (/FastTree exited with status/.test(message) && /-close/.test(message)) {
+    passed++;
+  } else {
+    failures++;
+    console.error(`FAIL FastTree exit error message: ${message}`);
+  }
+}
+
 console.log(`${passed} passed, ${failures} failed`);
 if (failures) {
   process.exit(1);

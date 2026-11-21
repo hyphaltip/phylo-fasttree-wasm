@@ -4,10 +4,14 @@
 //! is defined here (or in `vendor/src/ft_compat.c`). Keeping this in Rust
 //! means there is one allocator, one linear memory, and no JS glue.
 
-use core::arch::wasm32::unreachable;
 use core::sync::atomic::{AtomicI32, Ordering};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
+
+extern "C" {
+    fn ft_take_stderr() -> *mut c_char;
+}
 
 const ALIGN: usize = 16;
 const HEADER: usize = 16; // magic + payload size
@@ -34,14 +38,29 @@ pub extern "C" fn ft_last_error() -> i32 {
     EXIT_CODE.load(Ordering::SeqCst)
 }
 
-/// Called by the C `exit()` stub. FastTree only calls this on invalid input;
-/// the Rust API validates FASTA and arguments first, so reaching it means an
-/// internal error. We record the code and trap rather than terminating the
-/// whole WASM instance silently.
+/// Called by the C `exit()` stub. FastTree calls this when it rejects input or
+/// arguments that the Rust pre-flight cannot anticipate (e.g. `-close` without
+/// `-top`). Throwing a JS error here — instead of executing `unreachable` —
+/// makes the failure visible to callers as a normal `catch (e)` while keeping
+/// the WASM instance usable for subsequent calls.
 #[no_mangle]
 pub extern "C" fn ft_exit_hook(code: i32) {
-    EXIT_CODE.store(if code == 0 { 1 } else { code }, Ordering::SeqCst);
-    unreachable();
+    let status = if code == 0 { 1 } else { code };
+    EXIT_CODE.store(status, Ordering::SeqCst);
+
+    let mut msg = format!("FastTree exited with status {}", status);
+    unsafe {
+        let err = ft_take_stderr();
+        if !err.is_null() {
+            let detail = CStr::from_ptr(err).to_string_lossy();
+            if !detail.trim().is_empty() {
+                msg.push_str(": ");
+                msg.push_str(detail.trim());
+            }
+            free(err as *mut c_void);
+        }
+    }
+    wasm_bindgen::throw_str(&msg)
 }
 
 /* ------------------------------------------------------------------ */

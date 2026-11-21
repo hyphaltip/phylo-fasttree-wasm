@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>pending</title></head>
 <body><pre id="out">pending</pre>
 <script type="module">
-import init, { buildTreeNT, buildTreeProtein, fastTreeVersion } from './pkg_web/phylo_fasttree_wasm.js';
+import init, { buildTree, buildTreeNT, buildTreeProtein, fastTreeVersion } from './pkg_web/phylo_fasttree_wasm.js';
 const nt = `>a
 ACGTACGTACGTACGT
 >b
@@ -26,8 +26,19 @@ try {
   const t1 = buildTreeNT(nt);
   const t2 = buildTreeProtein(aa);
   const t3 = buildTreeNT(nt);
+
+  // FastTree's exit(1) path must be a catchable JS error, not an `unreachable`
+  // trap, and the module must still work afterwards.
+  let exitError = 'NO ERROR THROWN';
+  try {
+    buildTree('>a\nACGTACGT\n>b\nACGTACGA\n', ['-nt', '-notop', '-close', '0.5']);
+  } catch (e) {
+    exitError = String(e && (e.message || e));
+  }
+  const t4 = buildTreeNT(nt);
+
   document.getElementById('out').textContent =
-    `${fastTreeVersion()}\n${t1}\n${t2}\n${t3}`;
+    `${fastTreeVersion()}\n${t1}\n${t2}\n${t3}\n${exitError}\n${t4}`;
 } catch (e) {
   document.getElementById('out').textContent = `ERROR: ${e}`;
 }

@@ -42,8 +42,11 @@ are rejected.
 | `buildTreeProtein` | `(fasta: string) -> string` |
 | `fastTreeVersion` | `() -> string` |
 
-All functions throw on invalid input. The returned Newick string has the
-trailing newline stripped.
+All functions throw a normal JavaScript `Error` on invalid input, including
+FastTree's own `exit(1)` paths (e.g. incompatible option combinations); the
+which includes FastTree's own stderr message in `e.message`. The instance remains
+usable after a caught error. The returned Newick string has the trailing
+newline stripped.
 
 ## Build
 
@@ -52,7 +55,7 @@ WebAssembly target, `llvm-ar`, and `wasm-bindgen-cli` 0.2.83.
 
 ```sh
 cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen target/wasm32-unknown-unknown/release/fasttree_wasm.wasm \
+wasm-bindgen target/wasm32-unknown-unknown/release/phylo_fasttree_wasm.wasm \
   --target nodejs --out-dir tests/pkg
 node tests/node_test.js
 ```
@@ -114,8 +117,10 @@ default for `wasm32-unknown-unknown`).
   defaults to SH-like local support; pass `-nosupport` for faster runs).
 - Unknown options are passed straight through, so check FastTree's own docs
   for behavior.
-- On unexpected internal failure FastTree calls `exit()`; the shim records the
-  code and traps. Input validation in Rust prevents the common parse failures.
+- On unexpected internal failure FastTree calls `exit()`; the shim turns that
+  into a catchable JS error containing FastTree's stderr message instead of a
+  `RuntimeError: unreachable` trap. Input validation in Rust still catches the
+  common parse failures before entering WASM.
 
 ## License
 

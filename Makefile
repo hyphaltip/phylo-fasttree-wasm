@@ -15,9 +15,9 @@ browser-test: build
 	wasm-bindgen $(WASM) --target web --out-dir tests/pkg_web
 	(cd tests && python3 -m http.server 8765 >/dev/null 2>&1 & echo $$! > /tmp/ft_http.pid; \
 	  sleep 1; \
-	  chromium --headless --no-sandbox --disable-gpu --virtual-time-budget=10000 \
-	    --dump-dom http://localhost:8765/browser_test.html 2>/dev/null \
-	    | grep -q '2.1.11'; \
+	  out=$$(chromium --headless --no-sandbox --disable-gpu --virtual-time-budget=10000 \
+	    --dump-dom http://localhost:8765/browser_test.html 2>/dev/null); \
+	  echo "$$out" | grep -q '2.1.11' && echo "$$out" | grep -q 'Cannot use -close'; \
 	  status=$$?; \
 	  kill $$(cat /tmp/ft_http.pid) 2>/dev/null || true; \
 	  exit $$status)
