@@ -327,6 +327,7 @@ int ft_vfprintf(FILE *f, const char *fmt, va_list ap)
         if (*p) p++;
 
         char buf[128];
+        const char *out = buf;
         size_t len = 0;
         int pad_zero = zero && !left;
 
@@ -371,8 +372,9 @@ int ft_vfprintf(FILE *f, const char *fmt, va_list ap)
             if (s == NULL) s = (char *)"(null)";
             size_t slen = strlen(s);
             if (precision >= 0 && (size_t)precision < slen) slen = (size_t)precision;
-            if (slen >= sizeof(buf)) slen = sizeof(buf) - 1;
-            memcpy(buf, s, slen);
+            /* Emit straight from the argument: sequence names can be longer
+               than buf, and truncating them would corrupt the Newick labels. */
+            out = s;
             len = slen;
             pad_zero = 0;
             break;
@@ -410,10 +412,10 @@ int ft_vfprintf(FILE *f, const char *fmt, va_list ap)
                 }
                 for (int i = 0; i < pad; i++) written += ft_append(f, &padc, 1);
             }
-            written += ft_append(f, buf, len);
+            written += ft_append(f, out, len);
             if (left) for (int i = 0; i < pad; i++) written += ft_append(f, &padc, 1);
         } else {
-            written += ft_append(f, buf, len);
+            written += ft_append(f, out, len);
         }
     }
     return written;

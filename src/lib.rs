@@ -35,6 +35,7 @@ extern "C" {
     fn ft_last_error() -> i32;
     fn ft_take_stderr() -> *mut c_char;
     fn ft_reset_alloc();
+    fn ft_reset_output();
 }
 
 const FORBIDDEN_ARGS: &[&str] = &[
@@ -190,6 +191,9 @@ pub fn infer(fasta: &str, args: &[&str]) -> Result<String, String> {
 
     unsafe {
         ft_clear_error();
+        // Release C stream buffers first (nulls their pointers), then sweep
+        // anything a previous (possibly aborted) run left allocated.
+        ft_reset_output();
         ft_reset_alloc();
         let out = fasttree_build(fasta.as_ptr(), fasta.len(), argv.len() as i32 - 1, argv.as_ptr());
         if out.is_null() {

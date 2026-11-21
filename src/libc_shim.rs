@@ -14,15 +14,17 @@ extern "C" {
 }
 
 const ALIGN: usize = 16;
-const HEADER: usize = 16; // magic + payload size
-const TRAILER: usize = 8; // canary (diagnostic only)
-const CHUNK: usize = 1 << 20; // 1 MiB minimum chunk
-
+/// Every C allocation is prefixed by this header and linked into a list of
+/// live blocks, so `ft_reset_alloc()` can reclaim anything a run leaked
+/// (including everything left behind when FastTree `exit()`s mid-run).
 #[repr(C)]
 struct AllocHeader {
     magic: usize,
     size: usize, // payload size
+    prev: *mut AllocHeader,
+    next: *mut AllocHeader,
 }
+const HEADER: usize = (core::mem::size_of::<AllocHeader>() + ALIGN - 1) & !(ALIGN - 1);
 
 const MAGIC: usize = 0x46545f4d; // "FT_M"
 
@@ -67,37 +69,58 @@ pub extern "C" fn ft_exit_hook(code: i32) {
 /* Allocation                                                          */
 /* ------------------------------------------------------------------ */
 //
-// FastTree performs an enormous number of small malloc/free/realloc calls and
-// expects glibc's allocation semantics. Reimplementing a general heap in the
-// shim was both slow and fragile: subtle differences in realloc() bookkeeping
-// eventually corrupted the heap on long runs. Instead we use a bump allocator
-// over chunks obtained from Rust's global allocator. `free()` is a no-op and
-// `realloc()` copies into a fresh block. All C allocations are reclaimed at
-// the start of each `infer()` call by rewinding the bump pointer. This is
-// ideal for a short-lived, single-threaded inference call in WASM.
+// malloc/free/realloc forward to Rust's global allocator (dlmalloc on
+// wasm32), so freed memory is actually reused. FastTree frees most of what it
+// allocates, so peak memory tracks native FastTree instead of the cumulative
+// total of every allocation ever made. Live blocks are kept on an intrusive
+// doubly-linked list; `ft_reset_alloc()` frees whatever is still live, which
+// keeps the instance usable after an aborted (thrown) run.
 
-struct Chunk {
-    ptr: *mut u8,
-    len: usize,
+static mut LIVE: *mut AllocHeader = ptr::null_mut();
+
+#[inline]
+unsafe fn layout_for(size: usize) -> Option<std::alloc::Layout> {
+    let total = size.checked_add(HEADER)?;
+    std::alloc::Layout::from_size_align(total, ALIGN).ok()
 }
 
-unsafe impl Send for Chunk {}
+#[inline]
+unsafe fn link(h: *mut AllocHeader) {
+    (*h).prev = ptr::null_mut();
+    (*h).next = LIVE;
+    if !LIVE.is_null() {
+        (*LIVE).prev = h;
+    }
+    LIVE = h;
+}
 
-static mut CHUNKS: Vec<Chunk> = Vec::new();
-static mut CHUNK_IDX: usize = 0;
-static mut OFFSET: usize = 0;
-
-/// Reclaim all memory handed to C. Call only when no C pointers are live.
-#[no_mangle]
-pub extern "C" fn ft_reset_alloc() {
-    unsafe {
-        CHUNK_IDX = 0;
-        OFFSET = 0;
+#[inline]
+unsafe fn unlink(h: *mut AllocHeader) {
+    if (*h).prev.is_null() {
+        LIVE = (*h).next;
+    } else {
+        (*(*h).prev).next = (*h).next;
+    }
+    if !(*h).next.is_null() {
+        (*(*h).next).prev = (*h).prev;
     }
 }
 
-fn canary(size: usize) -> usize {
-    MAGIC ^ size.rotate_left(17)
+/// Free every C allocation that is still live. Call only when no C pointers
+/// are in use (i.e. between FastTree runs).
+#[no_mangle]
+pub extern "C" fn ft_reset_alloc() {
+    unsafe {
+        let mut h = LIVE;
+        while !h.is_null() {
+            let next = (*h).next;
+            let layout = layout_for((*h).size).unwrap();
+            (*h).magic = 0;
+            std::alloc::dealloc(h as *mut u8, layout);
+            h = next;
+        }
+        LIVE = ptr::null_mut();
+    }
 }
 
 #[no_mangle]
@@ -105,49 +128,36 @@ pub unsafe extern "C" fn malloc(size: usize) -> *mut c_void {
     if size == 0 {
         return ptr::null_mut();
     }
-    let need = match size.checked_add(HEADER + TRAILER) {
-        Some(n) => (n + ALIGN - 1) & !(ALIGN - 1),
+    let layout = match layout_for(size) {
+        Some(l) => l,
         None => return ptr::null_mut(),
     };
-
-    if CHUNK_IDX >= CHUNKS.len() || OFFSET + need > CHUNKS[CHUNK_IDX].len {
-        CHUNK_IDX = CHUNKS.len();
-        OFFSET = 0;
-        let len = need.max(CHUNK);
-        let layout = match std::alloc::Layout::from_size_align(len, ALIGN) {
-            Ok(l) => l,
-            Err(_) => return ptr::null_mut(),
-        };
-        let p = std::alloc::alloc(layout);
-        if p.is_null() {
-            return ptr::null_mut();
-        }
-        CHUNKS.push(Chunk { ptr: p, len });
+    let base = std::alloc::alloc(layout);
+    if base.is_null() {
+        return ptr::null_mut();
     }
-
-    let base = CHUNKS[CHUNK_IDX].ptr.add(OFFSET);
-    OFFSET += need;
-    ptr::write(
-        base as *mut AllocHeader,
-        AllocHeader {
-            magic: MAGIC,
-            size,
-        },
-    );
-    ptr::write(base.add(HEADER + size) as *mut usize, canary(size));
+    let h = base as *mut AllocHeader;
+    (*h).magic = MAGIC;
+    (*h).size = size;
+    link(h);
     base.add(HEADER) as *mut c_void
+}
+
+#[inline]
+unsafe fn header_of(p: *mut c_void) -> Option<*mut AllocHeader> {
+    let h = (p as *mut u8).sub(HEADER) as *mut AllocHeader;
+    if (*h).magic == MAGIC { Some(h) } else { None }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn free(p: *mut c_void) {
-    // Intentionally a no-op; memory is reclaimed by ft_reset_alloc().
     if p.is_null() {
         return;
     }
-    let base = (p as *mut u8).sub(HEADER);
-    let h = base as *mut AllocHeader;
-    if (*h).magic == MAGIC {
+    if let Some(h) = header_of(p) {
+        unlink(h);
         (*h).magic = 0;
+        std::alloc::dealloc(h as *mut u8, layout_for((*h).size).unwrap());
     }
 }
 
@@ -160,20 +170,25 @@ pub unsafe extern "C" fn realloc(p: *mut c_void, size: usize) -> *mut c_void {
         free(p);
         return ptr::null_mut();
     }
-    let base = (p as *mut u8).sub(HEADER);
-    let h = base as *mut AllocHeader;
-    if (*h).magic != MAGIC {
+    let h = match header_of(p) {
+        Some(h) => h,
+        None => return ptr::null_mut(),
+    };
+    let new_total = match size.checked_add(HEADER) {
+        Some(n) => n,
+        None => return ptr::null_mut(),
+    };
+    unlink(h);
+    let old_layout = layout_for((*h).size).unwrap();
+    let nb = std::alloc::realloc(h as *mut u8, old_layout, new_total);
+    if nb.is_null() {
+        link(h); // original block is untouched on failure
         return ptr::null_mut();
     }
-    let old_size = (*h).size;
-    let new = malloc(size) as *mut u8;
-    if new.is_null() {
-        return ptr::null_mut();
-    }
-    let n = old_size.min(size);
-    ptr::copy_nonoverlapping(base.add(HEADER), new, n);
-    (*h).magic = 0;
-    new as *mut c_void
+    let nh = nb as *mut AllocHeader;
+    (*nh).size = size;
+    link(nh);
+    nb.add(HEADER) as *mut c_void
 }
 
 #[no_mangle]

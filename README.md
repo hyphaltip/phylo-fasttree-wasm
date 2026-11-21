@@ -44,8 +44,22 @@ are rejected.
 
 All functions throw a normal JavaScript `Error` on invalid input, including
 FastTree's own `exit(1)` paths (e.g. incompatible option combinations); the
-which includes FastTree's own stderr message in `e.message`. The instance remains
-usable after a caught error. The returned Newick string has the trailing
+error includes FastTree's own stderr message in `e.message`.
+
+**Restore the stack pointer after a caught error.** An `exit()` inside FastTree
+throws straight out of WASM, skipping the C epilogues, so the shadow-stack
+pointer drifts downward with every failure and corrupts memory after a few
+hundred errors. Wrap calls like this (with `--target web`, `init()` resolves to
+the module exports):
+
+```js
+const wasm = await init();
+function safeBuildTree(fasta, args) {
+  const sp = wasm.__wbindgen_add_to_stack_pointer(0);
+  try { return buildTree(fasta, args); }
+  catch (e) { wasm.__wbindgen_add_to_stack_pointer(sp - wasm.__wbindgen_add_to_stack_pointer(0)); throw e; }
+}
+``` The returned Newick string has the trailing
 newline stripped.
 
 ## Build
@@ -76,7 +90,9 @@ headless Chromium smoke test; `make browser-demo` regenerates the glue for
 - `vendor/src/ft_compat.c` implements in-memory `FILE*`, a small `printf`,
   `qsort`, ctype helpers, numeric conversions, and OS stubs (`isatty`,
   `gettimeofday`). `stdin` is the FASTA buffer; `stdout` is the Newick buffer.
-- `src/libc_shim.rs` implements the remaining libc symbols in Rust: allocator,
+- `src/libc_shim.rs` implements the remaining libc symbols in Rust: an
+  allocator (malloc/free/realloc forwarded to Rust's dlmalloc, with live
+  blocks tracked so anything left by an aborted run is swept on the next call),
   string/memory functions, `log`/`exp`/`sqrt`/`fabs` via the `libm` crate, and
   float formatting for `printf`.
 - `src/lib.rs` validates input, assembles `argv`, calls FastTree, and exposes
