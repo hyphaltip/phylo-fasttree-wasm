@@ -1,4 +1,5 @@
 /target/
 /tests/pkg/
 /tests/pkg_web/
+/web/pkg_web/
 *.log

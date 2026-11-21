@@ -1,6 +1,6 @@
 WASM := target/wasm32-unknown-unknown/release/phylo_fasttree_wasm.wasm
 
-.PHONY: build test browser-test browser-demo clean
+.PHONY: build test browser-test browser-demo web clean
 
 build:
 	cargo build --target wasm32-unknown-unknown --release
@@ -26,6 +26,10 @@ browser-test: build
 browser-demo: build
 	wasm-bindgen $(WASM) --target web --out-dir tests/pkg_web
 
+# Build the upload/tree web interface (serve web/ over HTTP).
+web: build
+	wasm-bindgen $(WASM) --target web --out-dir web/pkg_web
+
 clean:
 	cargo clean
-	rm -rf tests/pkg tests/pkg_web
+	rm -rf tests/pkg tests/pkg_web web/pkg_web

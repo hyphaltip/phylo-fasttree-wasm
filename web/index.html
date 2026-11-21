@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phylo-fasttree-wasm — build a tree from FASTA</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --fg: #212529;
+    --muted: #6c757d;
+    --border: #dee2e6;
+    --primary: #0d6efd;
+    --primary-hover: #0b5ed7;
+    --success: #198754;
+    --danger: #dc3545;
+    --card: #fff;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(135deg, #0d6efd, #6610f2);
+    color: white;
+    padding: 2rem 1rem;
+    text-align: center;
+  }
+  header h1 { margin: 0 0 0.25rem; font-size: 2rem; }
+  header p { margin: 0; opacity: 0.9; }
+  main {
+    max-width: 64rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .card h2 {
+    margin: 0 0 1rem;
+    font-size: 1.25rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+  }
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .tabs button {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font: inherit;
+  }
+  .tabs button.active { background: var(--primary); color: white; border-color: var(--primary); }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: #f0f7ff; }
+  .dropzone input { display: none; }
+  textarea {
+    width: 100%;
+    min-height: 12rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    resize: vertical;
+  }
+  .options { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; }
+  .options label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+  .row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+  button.action {
+    padding: 0.75rem 1.5rem;
+    font: inherit;
+    font-weight: 600;
+    color: white;
+    background: var(--primary);
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  button.action:hover { background: var(--primary-hover); }
+  button.action:disabled { opacity: 0.6; cursor: wait; }
+  button.secondary {
+    padding: 0.5rem 1rem;
+    font: inherit;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .status { margin-top: 1rem; padding: 0.75rem; border-radius: var(--radius); }
+  .status.error { background: #f8d7da; color: #842029; }
+  .status.info { background: #d1ecf1; color: #0c5460; }
+  .status:empty { display: none; }
+  pre.newick {
+    background: #f8f9fa;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.85rem;
+    max-height: 12rem;
+    overflow: auto;
+  }
+  #tree-svg { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); background: white; }
+  .hidden { display: none; }
+  .meta { color: var(--muted); font-size: 0.875rem; }
+  a { color: var(--primary); }
+  footer { text-align: center; color: var(--muted); padding: 2rem 1rem; font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>phylo-fasttree-wasm</h1>
+  <p>Infer a phylogenetic tree from a FASTA alignment — entirely in your browser</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>1. Input alignment</h2>
+    <div class="tabs">
+      <button id="tab-upload" class="active">Upload file</button>
+      <button id="tab-paste">Paste FASTA</button>
+    </div>
+    <div id="panel-upload">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".fa,.fasta,.fas,.fna,.ffn,.faa,.txt">
+        <p><strong>Drag &amp; drop</strong> a FASTA file here, or click to browse</p>
+        <p class="meta" id="file-name">No file selected</p>
+      </div>
+      <textarea id="upload-preview" class="hidden" readonly></textarea>
+    </div>
+    <div id="panel-paste" class="hidden">
+      <textarea id="fasta-text" placeholder=">seq1&#10;ACGTACGT...&#10;>seq2&#10;ACGTACGA..."></textarea>
+    </div>
+    <p class="meta" id="alignment-info"></p>
+  </div>
+
+  <div class="card">
+    <h2>2. Options</h2>
+    <div class="options">
+      <label><input type="radio" name="seqtype" value="nt" id="type-nt"> Nucleotide</label>
+      <label><input type="radio" name="seqtype" value="aa" id="type-aa"> Protein</label>
+      <label><input type="radio" name="seqtype" value="auto" id="type-auto" checked> Auto-detect</label>
+      <label><input type="checkbox" id="opt-gtr"> GTR model (nt only)</label>
+      <label><input type="checkbox" id="opt-gamma"> Gamma rate categories</label>
+      <label><input type="checkbox" id="opt-nosupport"> No local support</label>
+      <label><input type="checkbox" id="opt-fastest"> Fastest heuristic</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="action" id="build" disabled>Build tree</button>
+      <span class="meta" id="version"></span>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div id="results" class="hidden">
+    <div class="card">
+      <h2>3. Newick tree</h2>
+      <pre class="newick" id="newick"></pre>
+      <div class="row" style="margin-top:1rem">
+        <button class="secondary" id="copy">Copy</button>
+        <button class="secondary" id="download">Download .nwk</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tree preview</h2>
+      <svg id="tree-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Powered by <a href="https://github.com/hyphaltip/phylo-fasttree-wasm">phylo-fasttree-wasm</a>
+  · Upstream <a href="http://www.microbesonline.org/fasttree/">FastTree 2.1.11</a>
+</footer>
+
+<script type="module">
+import init, { buildTree, fastTreeVersion } from './pkg_web/phylo_fasttree_wasm.js';
+
+const $ = (id) => document.getElementById(id);
+let fasta = '';
+let ready = false;
+
+// ---- initialization ----
+try {
+  await init();
+  ready = true;
+  $('version').textContent = `FastTree ${fastTreeVersion()} loaded`;
+  $('build').disabled = false;
+} catch (e) {
+  setStatus(`Failed to load WASM module: ${e}`, 'error');
+}
+
+// ---- input handling ----
+function setStatus(msg, kind) {
+  const s = $('status');
+  s.textContent = msg;
+  s.className = msg ? `status ${kind || 'info'}` : '';
+}
+
+function updateInput() {
+  const pastePanel = !$('panel-paste').classList.contains('hidden');
+  fasta = pastePanel ? $('fasta-text').value : $('upload-preview').value;
+  const lines = fasta.split(/\r?\n/).filter(l => l.trim().startsWith('>'));
+  const seqCount = lines.length;
+  let aaCount = 0, ntCount = 0;
+  for (const line of fasta.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('>'))) {
+    for (const c of line.trim().toUpperCase()) {
+      if ('ACGTUN'.includes(c)) ntCount++;
+      else if ('DEFGHIKLMNPQRSTVWYBJZX'.includes(c) && !'ACGTUN'.includes(c)) aaCount++;
+    }
+  }
+  const guess = aaCount > ntCount / 3 ? 'protein' : 'nucleotide';
+  $('alignment-info').textContent = fasta
+    ? `${seqCount} sequences · likely ${guess} · ${fasta.length} characters`
+    : 'No alignment loaded';
+}
+
+$('tab-upload').addEventListener('click', () => {
+  $('tab-upload').classList.add('active');
+  $('tab-paste').classList.remove('active');
+  $('panel-upload').classList.remove('hidden');
+  $('panel-paste').classList.add('hidden');
+  updateInput();
+});
+$('tab-paste').addEventListener('click', () => {
+  $('tab-paste').classList.add('active');
+  $('tab-upload').classList.remove('active');
+  $('panel-paste').classList.remove('hidden');
+  $('panel-upload').classList.add('hidden');
+  updateInput();
+});
+
+$('fasta-text').addEventListener('input', updateInput);
+
+const dropzone = $('dropzone');
+const fileInput = $('file-input');
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+});
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) loadFile(fileInput.files[0]);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    $('file-name').textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    $('upload-preview').value = reader.result;
+    $('upload-preview').classList.remove('hidden');
+    dropzone.querySelector('p').textContent = 'File loaded — click to replace';
+    updateInput();
+    setStatus('File loaded. Click "Build tree" to infer.', 'info');
+  };
+  reader.onerror = () => setStatus('Could not read the file.', 'error');
+  reader.readAsText(file);
+}
+
+// ---- build ----
+$('build').addEventListener('click', () => {
+  if (!ready) return;
+  if (!fasta.trim()) {
+    setStatus('Please provide a FASTA alignment first.', 'error');
+    return;
+  }
+  const type = document.querySelector('input[name="seqtype"]:checked').value;
+  let nucleotide;
+  if (type === 'auto') {
+    const residues = fasta.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('>')).join('').toUpperCase();
+    nucleotide = !/[DEFGHIKLMNPQRSTVWYBJZX]/.test(residues);
+  } else {
+    nucleotide = type === 'nt';
+  }
+
+  const args = [];
+  if (nucleotide) args.push('-nt');
+  if ($('opt-gtr').checked && nucleotide) args.push('-gtr');
+  if ($('opt-gamma').checked) args.push('-gamma');
+  if ($('opt-nosupport').checked) args.push('-nosupport');
+  if ($('opt-fastest').checked) args.push('-fastest');
+
+  setStatus(`Running FastTree (${nucleotide ? 'nucleotide' : 'protein'})…`, 'info');
+  $('build').disabled = true;
+
+  // Let the UI paint before the synchronous WASM call.
+  setTimeout(() => {
+    try {
+      const tree = buildTree(fasta, args);
+      $('newick').textContent = tree;
+      $('results').classList.remove('hidden');
+      drawTree(tree);
+      setStatus(`Done — tree with ${tree.split(',').length} tips.`, 'info');
+    } catch (e) {
+      setStatus(`Error: ${e}`, 'error');
+    } finally {
+      $('build').disabled = false;
+    }
+  }, 50);
+});
+
+// ---- output actions ----
+$('copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('newick').textContent);
+  setStatus('Newick copied to clipboard.', 'info');
+});
+$('download').addEventListener('click', () => {
+  const blob = new Blob([$('newick').textContent + '\n'], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tree.nwk';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// ---- simple rectangular tree renderer ----
+function parseNewick(s) {
+  // Returns a nested object: {name, length, children}
+  let pos = 0;
+  function parseNode() {
+    const node = { name: '', length: 0, children: [] };
+    if (s[pos] === '(') {
+      pos++;
+      while (s[pos] !== ')') {
+        node.children.push(parseNode());
+        if (s[pos] === ',') pos++;
+      }
+      pos++; // ')'
+      // internal support value
+      let label = '';
+      while (pos < s.length && !':(),;'.includes(s[pos])) label += s[pos++];
+      node.name = label.trim();
+    } else {
+      let label = '';
+      while (pos < s.length && !':(),;'.includes(s[pos])) label += s[pos++];
+      node.name = label.trim();
+    }
+    if (s[pos] === ':') {
+      pos++;
+      let num = '';
+      while (pos < s.length && !',();'.includes(s[pos])) num += s[pos++];
+      node.length = parseFloat(num) || 0;
+    }
+    return node;
+  }
+  const root = parseNode();
+  return root;
+}
+
+function drawTree(newick) {
+  const svg = $('tree-svg');
+  const root = parseNewick(newick.trim());
+  const leaves = [];
+  let maxDepth = 0;
+  function walk(node, depth) {
+    maxDepth = Math.max(maxDepth, depth);
+    if (node.children.length === 0) {
+      leaves.push({ node, depth });
+    } else {
+      node.children.forEach(c => walk(c, depth + 1));
+    }
+  }
+  walk(root, 0);
+
+  const width = Math.max(600, svg.parentElement.clientWidth - 4);
+  const rowH = Math.max(22, Math.min(40, 500 / Math.max(1, leaves.length)));
+  const height = leaves.length * rowH + 40;
+  const marginX = 20, marginY = 20;
+  const labelW = 160;
+  const treeW = width - marginX * 2 - labelW;
+  const xScale = maxDepth > 0 ? treeW / maxDepth : treeW;
+
+  let leafIdx = 0;
+  function layout(node, depth) {
+    node._x = marginX + depth * xScale;
+    if (node.children.length === 0) {
+      node._y = marginY + leafIdx++ * rowH + rowH / 2;
+    } else {
+      node.children.forEach(c => layout(c, depth + 1));
+      node._y = (node.children[0]._y + node.children[node.children.length - 1]._y) / 2;
+    }
+  }
+  layout(root, 0);
+
+  const lines = [];
+  function edges(node) {
+    for (const c of node.children) {
+      lines.push(`<line x1="${node._x}" y1="${node._y}" x2="${c._x}" y2="${c._y}" stroke="#495057" stroke-width="1.5"/>`);
+      edges(c);
+    }
+  }
+  edges(root);
+
+  const labels = [];
+  function nodes(node) {
+    if (node.children.length === 0) {
+      labels.push(`<text x="${node._x + 6}" y="${node._y + 4}" font-size="12" font-family="monospace">${escapeXml(node.name)}</text>`);
+    } else if (node.name) {
+      labels.push(`<text x="${node._x + 3}" y="${node._y - 4}" font-size="9" fill="#6c757d">${escapeXml(node.name)}</text>`);
+    }
+    node.children.forEach(nodes);
+  }
+  nodes(root);
+
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.innerHTML = lines.join('') + labels.join('');
+}
+
+function escapeXml(s) {
+  return s.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
+}
+
+updateInput();
+
+// Auto-run hook for headless testing: ?autotest=1
+if (new URLSearchParams(location.search).has('autotest')) {
+  const testFasta = '>a\nACGTACGTACGTACGT\n>b\nACGTACGTACGTACGA\n>c\nACGTACGTACGAACGA\n>d\nACGAACGTACGAACGA\n';
+  $('tab-paste').click();
+  $('fasta-text').value = testFasta;
+  updateInput();
+  $('build').click();
+}
+</script>
+</body>
+</html>
