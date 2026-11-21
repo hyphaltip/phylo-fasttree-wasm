@@ -257,6 +257,13 @@ pub fn fasttree_version() -> String {
     "2.1.11".to_string()
 }
 
+/// Floating-point precision of this build: "single" (FastTree's default) or
+/// "double" (built with `--features double`, i.e. FastTree's -DUSE_DOUBLE).
+#[wasm_bindgen(js_name = fastTreePrecision)]
+pub fn fasttree_precision() -> String {
+    if cfg!(feature = "double") { "double" } else { "single" }.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_fasta;

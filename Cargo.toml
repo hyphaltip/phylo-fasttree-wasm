@@ -14,6 +14,11 @@ build = "build.rs"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# FastTree's double-precision build (-DUSE_DOUBLE). Default is single precision,
+# FastTree's own default. See README "Precision".
+double = []
+
 [dependencies]
 wasm-bindgen = "=0.2.83"
 libm = "=0.2.7"

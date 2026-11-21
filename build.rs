@@ -57,11 +57,19 @@ fn main() {
         ("vendor/src/ft_reset.c", "ft_reset.o"),
     ];
 
+    // `--features double` builds FastTree's double-precision variant
+    // (-DUSE_DOUBLE), the same as bioconda's FastTree binary.
+    let double = env::var("CARGO_FEATURE_DOUBLE").is_ok();
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_DOUBLE");
+
     let mut objects = Vec::new();
     for (src, obj) in sources {
         let obj_path = out.join(obj);
         let obj_s = obj_path.to_str().unwrap();
         let mut args = common.to_vec();
+        if double {
+            args.push("-DUSE_DOUBLE");
+        }
         args.push("-c");
         args.push(src);
         args.push("-o");

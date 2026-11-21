@@ -41,6 +41,7 @@ are rejected.
 | `buildTreeNT` | `(fasta: string) -> string` |
 | `buildTreeProtein` | `(fasta: string) -> string` |
 | `fastTreeVersion` | `() -> string` |
+| `fastTreePrecision` | `() -> "single" \| "double"` |
 
 All functions throw a normal JavaScript `Error` on invalid input, including
 FastTree's own `exit(1)` paths (e.g. incompatible option combinations); the
@@ -59,8 +60,9 @@ function safeBuildTree(fasta, args) {
   try { return buildTree(fasta, args); }
   catch (e) { wasm.__wbindgen_add_to_stack_pointer(sp - wasm.__wbindgen_add_to_stack_pointer(0)); throw e; }
 }
-``` The returned Newick string has the trailing
-newline stripped.
+```
+
+The returned Newick string has the trailing newline stripped.
 
 ## Build
 
@@ -78,6 +80,52 @@ For the browser, use `--target web` (or `--target bundler`) instead of
 `--target nodejs` when running `wasm-bindgen`. `make browser-test` runs a
 headless Chromium smoke test; `make browser-demo` regenerates the glue for
 `tests/browser.html` (serve `tests/` over HTTP and open that page).
+
+## Precision
+
+FastTree compiles in single precision by default, or in double precision with
+`-DUSE_DOUBLE`. Bioconda's `fasttree` package is the double-precision build.
+Double precision mainly matters for very similar sequences: it allows much
+shorter minimum branch lengths, so nucleotide trees with near-zero branches can
+differ in both branch lengths and topology. Protein trees typically differ only
+in the 4th decimal place.
+
+This crate builds either one:
+
+```sh
+make web            # single precision → web/pkg_web/phylo_fasttree_wasm.*
+make web-double     # double precision → web/pkg_web_double/phylo_fasttree_wasm_double.*
+# or: cargo build --target wasm32-unknown-unknown --release --features double
+```
+
+`fastTreePrecision()` reports which build is loaded.
+
+**Speed.** In WebAssembly the two run at the same speed. The WASM build has no
+SSE (`-DNO_SSE`), and scalar f32 and f64 arithmetic cost the same, so single
+precision's native speed advantage, which comes from its SSE code, doesn't
+apply. Simulated alignments on Node 22 (aarch64), best of two runs:
+
+| Alignment | Options | single | double |
+| --- | --- | --- | --- |
+| 200 proteins × 400 aa | `-lg -gamma` | 17.9 s | 18.4 s (1.03×) |
+| 300 sequences × 1000 nt | `-nt -gtr -gamma` | 14.2 s | 13.8 s (0.98×) |
+
+Double precision uses more memory for likelihood vectors, which only matters
+near the browser's memory ceiling. The `.wasm` grows by 7 KB (307 KB vs
+301 KB).
+
+**Correctness.** `make test-double FT_DOUBLE=/path/to/native-double` compares
+the double build against a strict double-precision native FastTree:
+
+```sh
+gcc -O3 -DUSE_DOUBLE -DNO_SSE -DNDEBUG -ffp-contract=off -o fasttree-native-double FastTree.c -lm
+```
+
+Seven of the nine cases are byte-identical. The two `-gamma` cases match
+except for numbers ≤ 1e-7 apart: WASM uses Rust's `libm` and native uses the
+system libm, and in double precision their last-bit differences can reach the
+printed digits. The test allows numeric differences up to 1e-6, with all
+other Newick text identical.
 
 ## How it works
 

@@ -1,9 +1,14 @@
 WASM := target/wasm32-unknown-unknown/release/phylo_fasttree_wasm.wasm
+# Double-precision build lives in its own target dir so the two don't evict each other.
+WASM_DOUBLE := target/double/wasm32-unknown-unknown/release/phylo_fasttree_wasm.wasm
 
-.PHONY: build test browser-test browser-demo web clean
+.PHONY: build build-double test test-double browser-test browser-demo web web-double clean
 
 build:
 	cargo build --target wasm32-unknown-unknown --release
+
+build-double:
+	cargo build --target wasm32-unknown-unknown --release --features double --target-dir target/double
 
 # Regenerate JS glue for Node and run byte-for-byte comparison with native FastTree.
 test: build
@@ -30,6 +35,16 @@ browser-demo: build
 web: build
 	wasm-bindgen $(WASM) --target web --out-dir web/pkg_web
 
+# Double-precision browser package: web/pkg_web_double/phylo_fasttree_wasm_double.*
+web-double: build-double
+	wasm-bindgen $(WASM_DOUBLE) --target web --out-dir web/pkg_web_double --out-name phylo_fasttree_wasm_double
+
+# Double-precision Node package + byte-for-byte check against a strict
+# double-precision native FastTree (FT_DOUBLE=path; see README "Precision").
+test-double: build-double
+	wasm-bindgen $(WASM_DOUBLE) --target nodejs --out-dir tests/pkg_double --out-name phylo_fasttree_wasm
+	node tests/double_test.js
+
 clean:
 	cargo clean
-	rm -rf tests/pkg tests/pkg_web web/pkg_web
+	rm -rf tests/pkg tests/pkg_web tests/pkg_double web/pkg_web web/pkg_web_double

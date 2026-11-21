@@ -3,3 +3,5 @@
 /tests/pkg_web/
 /web/pkg_web/
 *.log
+/tests/pkg_double/
+/web/pkg_web_double/
